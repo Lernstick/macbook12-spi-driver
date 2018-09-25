@@ -1,5 +1,6 @@
 Source: macbook12-spi-driver
 Section: kernel
+Priority: optional
 Maintainer: Ronny Standtke <ronny.standtke@gmx.net>
 Build-Depends: debhelper (>= 9), dkms
 
