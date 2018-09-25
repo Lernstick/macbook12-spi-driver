@@ -1,0 +1,8 @@
+debian/debhelper-build-stamp
+debian/files
+debian/macbook12-spi-driver-dkms/
+debian/macbook12-spi-driver-dkms.debhelper.log
+debian/macbook12-spi-driver-dkms.dkms.debhelper
+debian/macbook12-spi-driver-dkms.postinst.debhelper
+debian/macbook12-spi-driver-dkms.prerm.debhelper
+debian/macbook12-spi-driver-dkms.substvars
