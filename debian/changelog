@@ -1,3 +1,14 @@
+macbook12-spi-driver (0.1~git20190729-1) lernstick-10; urgency=medium
+
+  * [5bd1fe] Create README.md
+  * [113ee0] added .gitignore file
+  * [2523df] use branch with touchbar support
+  * [d375fb] added section to debian control file
+  * [17ed72] added Priority to debian control file
+  * [989f99] new upstream release
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Thu, 05 Dec 2019 22:19:39 +0100
+
 macbook12-spi-driver (0.1~git20180925-1) lernstick-9; urgency=medium
 
   * Initial release.
