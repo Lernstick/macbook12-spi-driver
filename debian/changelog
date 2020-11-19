@@ -1,3 +1,11 @@
+macbook12-spi-driver (0.1~git20200224-1) lernstick-10; urgency=medium
+
+  * [3dea7e] updated .gitignore file
+  * [40453b] new upstream git snapshot 2020-02-24
+  * [5d5f8c] no longer build applespi (now part of the official kernel)
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Thu, 19 Nov 2020 20:39:39 +0100
+
 macbook12-spi-driver (0.1~git20190729-1) lernstick-10; urgency=medium
 
   * [5bd1fe] Create README.md
