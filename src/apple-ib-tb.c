@@ -319,7 +319,7 @@ static void appletb_set_tb_worker(struct work_struct *work)
 {
 	struct appletb_device *tb_dev =
 		container_of(work, struct appletb_device, tb_work.work);
-	s64 time_left, min_timeout, time_to_off;
+	s64 time_left = 0, min_timeout, time_to_off;
 	unsigned char pending_mode;
 	unsigned char pending_disp;
 	unsigned char current_disp;
@@ -809,15 +809,11 @@ static struct usb_interface *appletb_get_usb_iface(struct hid_device *hdev)
 {
 	struct device *dev = &hdev->dev;
 
-	/* find the usb-interface device */
-	if (!dev->bus || strcmp(dev->bus->name, "hid") != 0)
-		return NULL;
+	/* in kernel: is_usb_interface(dev) */
+	while (dev && (!dev->type || strcmp(dev->type->name, "usb_interface")))
+		dev = dev->parent;
 
-	dev = dev->parent;
-	if (!dev || !dev->bus || strcmp(dev->bus->name, "usb") != 0)
-		return NULL;
-
-	return to_usb_interface(dev);
+	return dev ? to_usb_interface(dev) : NULL;
 }
 
 static int appletb_inp_connect(struct input_handler *handler,

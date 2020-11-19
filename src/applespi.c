@@ -49,11 +49,14 @@
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/jiffies.h>
+#include <linux/ktime.h>
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
 #include <linux/spi/spi.h>
+#include <linux/string.h>
+#include <linux/trace_events.h>
 #include <linux/version.h>
 #include <linux/wait.h>
 
@@ -70,6 +73,18 @@
 
 #ifdef PRE_SPI_PROPERTIES
 #include <linux/notifier.h>
+#endif
+
+#ifndef sizeof_field
+#define sizeof_field(TYPE, MEMBER)	sizeof((((TYPE *)0)->MEMBER))
+#endif
+
+#ifndef struct_size
+#define struct_size(p, member, n)	(sizeof(*(p)) + n * sizeof(*(p)->member))
+#endif
+
+#ifndef wait_event_lock_irq_timeout
+#define wait_event_lock_irq_timeout	wait_event_interruptible_lock_irq_timeout
 #endif
 
 #define APPLESPI_PACKET_SIZE	256
@@ -119,6 +134,10 @@ module_param_string(touchpad_dimensions, touchpad_dimensions,
 		    sizeof(touchpad_dimensions), 0444);
 MODULE_PARM_DESC(touchpad_dimensions, "The pixel dimensions of the touchpad, as XxY+W+H .");
 
+static char* trace_event;
+module_param(trace_event, charp, 0444);
+MODULE_PARM_DESC(trace_event, "Enable early event tracing. It takes the form of a comma-separated list of events to enable.");
+
 /**
  * struct keyboard_protocol - keyboard message.
  * message.type = 0x0110, message.length = 0x000a
@@ -144,10 +163,10 @@ struct keyboard_protocol {
  * struct tp_finger - single trackpad finger structure, le16-aligned
  *
  * @origin:		zero when switching track finger
- * @abs_x:		absolute x coodinate
- * @abs_y:		absolute y coodinate
- * @rel_x:		relative x coodinate
- * @rel_y:		relative y coodinate
+ * @abs_x:		absolute x coordinate
+ * @abs_y:		absolute y coordinate
+ * @rel_x:		relative x coordinate
+ * @rel_y:		relative y coordinate
  * @tool_major:		tool area, major axis
  * @tool_minor:		tool area, minor axis
  * @orientation:	16384 when point, else 15 bit angle
@@ -417,7 +436,7 @@ struct applespi_data {
 	unsigned int			cmd_msg_cntr;
 	/* lock to protect the above parameters and flags below */
 	spinlock_t			cmd_msg_lock;
-	bool				cmd_msg_queued;
+	ktime_t				cmd_msg_queued;
 	enum applespi_evt_type		cmd_evt_type;
 
 	struct led_classdev		backlight_info;
@@ -626,13 +645,19 @@ static void applespi_async_complete(void *context)
 {
 	struct applespi_complete_info *info = context;
 	struct applespi_data *applespi = info->applespi;
+	void (*complete)(void *);
 	unsigned long flags;
-
-	info->complete(applespi);
 
 	spin_lock_irqsave(&applespi->cmd_msg_lock, flags);
 
+	complete = info->complete;
 	info->complete = NULL;
+
+	spin_unlock_irqrestore(&applespi->cmd_msg_lock, flags);
+
+	complete(applespi);
+
+	spin_lock_irqsave(&applespi->cmd_msg_lock, flags);
 
 	if (applespi->cancel_spi && !applespi_async_outstanding(applespi))
 		wake_up_all(&applespi->drain_complete);
@@ -906,7 +931,7 @@ static void applespi_msg_complete(struct applespi_data *applespi,
 		wake_up_all(&applespi->drain_complete);
 
 	if (is_write_msg) {
-		applespi->cmd_msg_queued = false;
+		applespi->cmd_msg_queued = 0;
 		applespi_send_cmd_msg(applespi);
 	}
 
@@ -924,6 +949,8 @@ static void applespi_async_write_complete(void *context)
 	applespi_get_trace_fun(evt_type)(evt_type, PT_STATUS,
 					 applespi->tx_status,
 					 APPLESPI_STATUS_SIZE);
+
+	udelay(SPI_RW_CHG_DELAY_US);
 
 	if (!applespi_check_write_status(applespi, applespi->wr_m.status)) {
 		/*
@@ -948,8 +975,16 @@ static int applespi_send_cmd_msg(struct applespi_data *applespi)
 		return 0;
 
 	/* check whether send is in progress */
-	if (applespi->cmd_msg_queued)
-		return 0;
+	if (applespi->cmd_msg_queued) {
+		if (ktime_ms_delta(ktime_get(), applespi->cmd_msg_queued) < 1000)
+			return 0;
+
+		dev_warn(&applespi->spi->dev, "Command %d timed out\n",
+			 applespi->cmd_evt_type);
+
+		applespi->cmd_msg_queued = 0;
+		applespi->write_active = false;
+	}
 
 	/* set up packet */
 	memset(packet, 0, APPLESPI_PACKET_SIZE);
@@ -1046,7 +1081,7 @@ static int applespi_send_cmd_msg(struct applespi_data *applespi)
 		return sts;
 	}
 
-	applespi->cmd_msg_queued = true;
+	applespi->cmd_msg_queued = ktime_get();
 	applespi->write_active = true;
 
 	return 0;
@@ -1672,8 +1707,7 @@ static void applespi_got_data(struct applespi_data *applespi)
 		size_t tp_len;
 
 		tp = &message->touchpad;
-		tp_len = sizeof(*tp) +
-			 tp->number_of_fingers * sizeof(tp->fingers[0]);
+		tp_len = struct_size(tp, fingers, tp->number_of_fingers);
 
 		if (le16_to_cpu(message->length) + 2 != tp_len) {
 			dev_warn_ratelimited(&applespi->spi->dev,
@@ -1800,6 +1834,30 @@ static void applespi_save_bl_level(struct applespi_data *applespi,
 			 "Error saving backlight level to EFI vars: %d\n", sts);
 }
 
+static void applespi_enable_early_event_tracing(struct device *dev)
+{
+	char *buf, *event;
+	int sts;
+
+	if (trace_event && trace_event[0]) {
+		buf = kstrdup(trace_event, GFP_KERNEL);
+		if (!buf)
+			return;
+
+		while ((event = strsep(&buf, ","))) {
+			if (event[0]) {
+				sts = trace_set_clr_event("applespi", event, 1);
+				if (sts)
+					dev_warn(dev,
+						 "Error setting trace event '%s': %d\n",
+						 event, sts);
+			}
+		}
+
+		kfree(buf);
+	}
+}
+
 static int applespi_probe(struct spi_device *spi)
 {
 	struct applespi_data *applespi;
@@ -1808,6 +1866,8 @@ static int applespi_probe(struct spi_device *spi)
 	unsigned long flags;
 	int sts, i;
 	unsigned long long gpe, usb_status;
+
+	applespi_enable_early_event_tracing(&spi->dev);
 
 	/* check if the USB interface is present and enabled already */
 	acpi_sts = acpi_evaluate_integer(spi_handle, "UIST", NULL, &usb_status);
@@ -1995,30 +2055,12 @@ static int applespi_probe(struct spi_device *spi)
 
 	/* set up debugfs entries for touchpad dimensions logging */
 	applespi->debugfs_root = debugfs_create_dir("applespi", NULL);
-	if (IS_ERR(applespi->debugfs_root)) {
-		if (PTR_ERR(applespi->debugfs_root) != -ENODEV)
-			dev_warn(&applespi->spi->dev,
-				 "Error creating debugfs root entry (%ld)\n",
-				 PTR_ERR(applespi->debugfs_root));
-	} else {
-		struct dentry *ret;
 
-		ret = debugfs_create_bool("enable_tp_dim", 0600,
-					  applespi->debugfs_root,
-					  &applespi->debug_tp_dim);
-		if (IS_ERR(ret))
-			dev_dbg(&applespi->spi->dev,
-				"Error creating debugfs entry enable_tp_dim (%ld)\n",
-				PTR_ERR(ret));
+	debugfs_create_bool("enable_tp_dim", 0600, applespi->debugfs_root,
+			    &applespi->debug_tp_dim);
 
-		ret = debugfs_create_file("tp_dim", 0400,
-					  applespi->debugfs_root, applespi,
-					  &applespi_tp_dim_fops);
-		if (IS_ERR(ret))
-			dev_dbg(&applespi->spi->dev,
-				"Error creating debugfs entry tp_dim (%ld)\n",
-				PTR_ERR(ret));
-	}
+	debugfs_create_file("tp_dim", 0400, applespi->debugfs_root, applespi,
+			    &applespi_tp_dim_fops);
 
 	return 0;
 
@@ -2141,7 +2183,7 @@ static int __maybe_unused applespi_resume(struct device *dev)
 	applespi->drain = false;
 	applespi->have_cl_led_on = false;
 	applespi->have_bl_level = 0;
-	applespi->cmd_msg_queued = false;
+	applespi->cmd_msg_queued = 0;
 	applespi->read_active = false;
 	applespi->write_active = false;
 
