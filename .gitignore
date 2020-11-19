@@ -1,3 +1,4 @@
+debian/.debhelper/
 debian/debhelper-build-stamp
 debian/files
 debian/macbook12-spi-driver-dkms/
