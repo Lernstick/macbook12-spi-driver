@@ -1,3 +1,9 @@
+macbook12-spi-driver (0.1~git20200224-lernstick+1) lernstick-10; urgency=medium
+
+  * [53ce6e] applied https://github.com/roadrunner2/macbook12-spi-driver/pull/55
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Sun, 27 Dec 2020 11:05:41 +0100
+
 macbook12-spi-driver (0.1~git20200224-1) lernstick-10; urgency=medium
 
   * [3dea7e] updated .gitignore file
