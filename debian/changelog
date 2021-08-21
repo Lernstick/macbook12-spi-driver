@@ -1,3 +1,9 @@
+macbook12-spi-driver (0.1~git20210821-lernstick+1) lernstick-11; urgency=medium
+
+  * [a89f88] use more recent upstream repository
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Sat, 21 Aug 2021 16:08:55 +0200
+
 macbook12-spi-driver (0.1~git20200224-lernstick+1) lernstick-10; urgency=medium
 
   * [53ce6e] applied https://github.com/roadrunner2/macbook12-spi-driver/pull/55
