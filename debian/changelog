@@ -1,3 +1,9 @@
+macbook12-spi-driver (0.1~git20211021-lernstick+1) lernstick-11; urgency=medium
+
+  * [523e69] merged upstream patches
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Thu, 21 Oct 2021 20:36:56 +0200
+
 macbook12-spi-driver (0.1~git20210821-lernstick+1) lernstick-11; urgency=medium
 
   * [a89f88] use more recent upstream repository
