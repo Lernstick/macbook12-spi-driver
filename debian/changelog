@@ -1,3 +1,9 @@
+macbook12-spi-driver (0.1~git20220607-lernstick+1) lernstick-11; urgency=medium
+
+  * [bbb1e9] added fix for Linux 5.18
+
+ -- Ronny Standtke <ronny.standtke@gmx.net>  Sat, 25 Jun 2022 18:52:00 +0200
+
 macbook12-spi-driver (0.1~git20211021-lernstick+1) lernstick-11; urgency=medium
 
   * [523e69] merged upstream patches
