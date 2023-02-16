@@ -1,3 +1,9 @@
+macbook12-spi-driver (0.1~git20220607-lernstick+2) lernstick-11; urgency=medium
+
+  * add non tested workaround to build on 6.0
+
+ -- Thore Sommer <mail@thson.de>  Thu, 16 Feb 2023 18:23:58 +0200
+
 macbook12-spi-driver (0.1~git20220607-lernstick+1) lernstick-11; urgency=medium
 
   * [bbb1e9] added fix for Linux 5.18
