@@ -1134,33 +1134,6 @@ static int applespi_set_capsl_led(struct applespi_data *applespi,
 	return sts;
 }
 
-static void applespi_set_bl_level(struct led_classdev *led_cdev,
-				  enum led_brightness value)
-{
-	struct applespi_data *applespi =
-		container_of(led_cdev, struct applespi_data, backlight_info);
-	unsigned long flags;
-
-	spin_lock_irqsave(&applespi->cmd_msg_lock, flags);
-
-	if (value == 0) {
-		applespi->want_bl_level = value;
-	} else {
-		/*
-		 * The backlight does not turn on till level 32, so we scale
-		 * the range here so that from a user's perspective it turns
-		 * on at 1.
-		 */
-		applespi->want_bl_level =
-			((value * KBD_BL_LEVEL_ADJ) / KBD_BL_LEVEL_SCALE +
-			 KBD_BL_LEVEL_MIN);
-	}
-
-	applespi_send_cmd_msg(applespi);
-
-	spin_unlock_irqrestore(&applespi->cmd_msg_lock, flags);
-}
-
 static int applespi_event(struct input_dev *dev, unsigned int type,
 			  unsigned int code, int value)
 {
@@ -1800,55 +1773,6 @@ static u32 applespi_notify(acpi_handle gpe_device, u32 gpe, void *context)
 	return ACPI_INTERRUPT_HANDLED;
 }
 
-static int applespi_get_saved_bl_level(struct applespi_data *applespi)
-{
-	struct efivar_entry *efivar_entry;
-	u16 efi_data = 0;
-	unsigned long efi_data_len;
-	int sts;
-
-	efivar_entry = kmalloc(sizeof(*efivar_entry), GFP_KERNEL);
-	if (!efivar_entry)
-		return -ENOMEM;
-
-	memcpy(efivar_entry->var.VariableName, EFI_BL_LEVEL_NAME,
-	       sizeof(EFI_BL_LEVEL_NAME));
-	efivar_entry->var.VendorGuid = EFI_BL_LEVEL_GUID;
-	efi_data_len = sizeof(efi_data);
-
-	sts = efivar_entry_get(efivar_entry, NULL, &efi_data_len, &efi_data);
-	if (sts && sts != -ENOENT)
-		dev_warn(&applespi->spi->dev,
-			 "Error getting backlight level from EFI vars: %d\n",
-			 sts);
-
-	kfree(efivar_entry);
-
-	return sts ? sts : efi_data;
-}
-
-static void applespi_save_bl_level(struct applespi_data *applespi,
-				   unsigned int level)
-{
-	efi_guid_t efi_guid;
-	u32 efi_attr;
-	unsigned long efi_data_len;
-	u16 efi_data;
-	int sts;
-
-	/* Save keyboard backlight level */
-	efi_guid = EFI_BL_LEVEL_GUID;
-	efi_data = (u16)level;
-	efi_data_len = sizeof(efi_data);
-	efi_attr = EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS |
-		   EFI_VARIABLE_RUNTIME_ACCESS;
-
-	sts = efivar_entry_set_safe((efi_char16_t *)EFI_BL_LEVEL_NAME, efi_guid,
-				    efi_attr, true, efi_data_len, &efi_data);
-	if (sts)
-		dev_warn(&applespi->spi->dev,
-			 "Error saving backlight level to EFI vars: %d\n", sts);
-}
 
 static void applespi_enable_early_event_tracing(struct device *dev)
 {
@@ -2054,21 +1978,6 @@ static int applespi_probe(struct spi_device *spi)
 	 */
 	device_wakeup_enable(&spi->dev);
 
-	/* set up keyboard-backlight */
-	sts = applespi_get_saved_bl_level(applespi);
-	if (sts >= 0)
-		applespi_set_bl_level(&applespi->backlight_info, sts);
-
-	applespi->backlight_info.name            = "spi::kbd_backlight";
-	applespi->backlight_info.default_trigger = "kbd-backlight";
-	applespi->backlight_info.brightness_set  = applespi_set_bl_level;
-
-	sts = devm_led_classdev_register(&spi->dev, &applespi->backlight_info);
-	if (sts)
-		dev_warn(&applespi->spi->dev,
-			 "Unable to register keyboard backlight class dev (%d)\n",
-			 sts);
-
 	/* set up debugfs entries for touchpad dimensions logging */
 	applespi->debugfs_root = debugfs_create_dir("applespi", NULL);
 
@@ -2152,15 +2061,12 @@ static void applespi_shutdown(struct spi_device *spi)
 {
 	struct applespi_data *applespi = spi_get_drvdata(spi);
 
-	applespi_save_bl_level(applespi, applespi->have_bl_level);
 }
 
 static int applespi_poweroff_late(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
 	struct applespi_data *applespi = spi_get_drvdata(spi);
-
-	applespi_save_bl_level(applespi, applespi->have_bl_level);
 
 	return 0;
 }
